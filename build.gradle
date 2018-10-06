@@ -1,0 +1,20 @@
+apply plugin: 'java'
+
+repositories {
+    maven { url "http://maven-repo2.iggroup.local:8081/nexus/content/groups/public" }
+    maven { url 'https://dl.bintray.com/palantir/releases' }
+    jcenter()
+}
+
+dependencies {
+    compile 'org.apache.kafka:kafka-clients:2.0.0'
+    compile 'org.apache.activemq:artemis-jms-client:2.6.2'
+    compile 'org.apache.activemq:artemis-core-client:2.6.2'
+    compile 'com.fasterxml.jackson.core:jackson-databind:2.9.6'
+    compile 'io.dropwizard.metrics:metrics-core:4.0.3'
+
+    testCompile 'junit:junit:4.12'
+    testCompile 'org.hamcrest:hamcrest-library:1.3'
+//    testCompile 'com.palantir.docker.compose:docker-compose-rule-junit4:0.34.0'
+//    testCompile 'com.github.geowarin:docker-junit-rule:1.2.0'
+}
