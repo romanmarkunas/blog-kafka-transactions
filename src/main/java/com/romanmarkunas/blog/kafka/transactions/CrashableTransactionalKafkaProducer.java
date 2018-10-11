@@ -28,9 +28,9 @@ public class CrashableTransactionalKafkaProducer {
 
             for (TopicAndMessage topicAndMessage : messages) {
                 producer.send(new ProducerRecord<>(
-                        topicAndMessage.topic,
+                        topicAndMessage.getTopic(),
                         transactionNr,
-                        topicAndMessage.message));
+                        topicAndMessage.getMessage()));
 
                 if (shouldCrash) {
                     throw new ForceCrashException("Crashed during transaction!");
@@ -46,14 +46,4 @@ public class CrashableTransactionalKafkaProducer {
     }
 
 
-    public static class TopicAndMessage {
-
-        private final String topic;
-        private final String message;
-
-        public TopicAndMessage(String topic, String message) {
-            this.topic = topic;
-            this.message = message;
-        }
-    }
 }

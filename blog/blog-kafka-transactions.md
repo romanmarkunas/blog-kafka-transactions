@@ -1,5 +1,8 @@
 # Messaging system latencies, part 1: Apache Kafka
 
+Order placed goes to matcher engine and to overall stats aggregator. But aggregator
+is topic where no personal data arrive so message is different and you need 2 topics
+
 Most developers I talk to about Kafka agree on a catchphrase "Kafka is designed 
 for throughput". That's fair and you can find plenty of benchmarks that show
 700k/s throughput for single producer without replication. But does that mean

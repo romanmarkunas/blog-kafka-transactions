@@ -57,7 +57,7 @@ public class CrashableTransactionalKafkaProducerTest {
     }
 
 
-    private CrashableTransactionalKafkaProducer.TopicAndMessage fakeMessage() {
-        return new CrashableTransactionalKafkaProducer.TopicAndMessage("", "");
+    private TopicAndMessage fakeMessage() {
+        return new TopicAndMessage("", "");
     }
 }
