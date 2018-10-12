@@ -65,8 +65,7 @@ public class FailureScenarios {
         crashableProducer.sendTransactionally(MESSAGES);
 
         consumer = consumer(true);
-        consumer.subscribe(TOPICS);
-        ConsumerRecords<Integer, String> records = consumer.poll(Duration.ofSeconds(2));
+        ConsumerRecords<Integer, String> records = poll();
 
         assertEquals(4, records.count());
         printRecordsAndOffset(records, consumer.endOffsets(Collections.emptyList()));
@@ -80,8 +79,7 @@ public class FailureScenarios {
         crashableProducer.sendTransactionally(MESSAGES);
 
         consumer = consumer(false);
-        consumer.subscribe(TOPICS);
-        ConsumerRecords<Integer, String> records = consumer.poll(Duration.ofSeconds(2));
+        ConsumerRecords<Integer, String> records = poll();
 
         assertEquals(4, records.count());
         printRecordsAndOffset(records, consumer.endOffsets(Collections.emptyList()));
@@ -96,8 +94,7 @@ public class FailureScenarios {
         crashableProducer.sendTransactionally(MESSAGES);
 
         consumer = consumer(true);
-        consumer.subscribe(TOPICS);
-        ConsumerRecords<Integer, String> records = consumer.poll(Duration.ofSeconds(2));
+        ConsumerRecords<Integer, String> records = poll();
 
         assertEquals(3, records.count());
         printRecordsAndOffset(records, consumer.endOffsets(Collections.emptyList()));
@@ -112,13 +109,22 @@ public class FailureScenarios {
         crashableProducer.sendTransactionally(MESSAGES);
 
         consumer = consumer(false);
-        consumer.subscribe(TOPICS);
-        ConsumerRecords<Integer, String> records = consumer.poll(Duration.ofSeconds(2));
+        ConsumerRecords<Integer, String> records = poll();
 
         assertEquals(2, records.count());
-        printRecordsAndOffset(records, consumer.endOffsets(Collections.emptyList()));
+        printRecordsAndOffset(records, getOffsets());
     }
 
+
+    private ConsumerRecords<Integer, String> poll() {
+        consumer.subscribe(TOPICS);
+        consumer.poll(Duration.ofSeconds(2));
+        return consumer.poll(Duration.ofSeconds(2));
+    }
+
+    private Map<TopicPartition, Long> getOffsets() {
+        return consumer.endOffsets(Collections.emptyList());
+    }
 
     private void printRecordsAndOffset(
             ConsumerRecords<Integer, String> records,
