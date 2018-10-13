@@ -91,7 +91,12 @@ public class FailureScenarios {
                 = new CrashableTransactionalKafkaProducer(producer);
         crashableProducer.sendTransactionally(MESSAGES);
         crashableProducer.setShouldCrash(true);
-        crashableProducer.sendTransactionally(MESSAGES);
+        try {
+            crashableProducer.sendTransactionally(MESSAGES);
+        }
+        catch (ForceCrashException e) {
+            System.out.println("Producer crashed!");
+        }
 
         consumer = consumer(true);
         ConsumerRecords<Integer, String> records = poll();
@@ -106,7 +111,12 @@ public class FailureScenarios {
                 = new CrashableTransactionalKafkaProducer(producer);
         crashableProducer.sendTransactionally(MESSAGES);
         crashableProducer.setShouldCrash(true);
-        crashableProducer.sendTransactionally(MESSAGES);
+        try {
+            crashableProducer.sendTransactionally(MESSAGES);
+        }
+        catch (ForceCrashException e) {
+            System.out.println("Producer crashed!");
+        }
 
         consumer = consumer(false);
         ConsumerRecords<Integer, String> records = poll();
