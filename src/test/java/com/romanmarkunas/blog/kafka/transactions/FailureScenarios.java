@@ -7,7 +7,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.kafka.common.serialization.IntegerSerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -17,12 +16,11 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.time.Duration;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.time.LocalTime;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+import static java.time.LocalTime.now;
 import static java.util.Arrays.asList;
 import static org.junit.Assert.assertEquals;
 
@@ -31,7 +29,8 @@ public class FailureScenarios {
     private static final String BROKER = "localhost:9092";
     private static final String TRADE_MATCHER_TOPIC = "orders";
     private static final String AGGREGATOR_TOPIC = "anonymous-orders";
-    private static final String GROUP = "test-group";
+    private static final String GROUP = "test-consumer-group";
+    private static final String TRANSACTION_ID = "order-producer";
 
     private static final List<String> TOPICS = asList(
             TRADE_MATCHER_TOPIC,
@@ -43,11 +42,13 @@ public class FailureScenarios {
 
     private KafkaProducer<Integer, String> producer;
     private KafkaConsumer<Integer, String> consumer;
+    private CrashableTransactionalKafkaProducer crashableProducer;
 
 
     @Before
     public void setup() {
         producer = transactionalProducer();
+        crashableProducer = new CrashableTransactionalKafkaProducer(producer);
     }
 
     @After
@@ -59,36 +60,31 @@ public class FailureScenarios {
 
     @Test
     public void noFailuresOccurred_readAllConsumer() {
-        CrashableTransactionalKafkaProducer crashableProducer
-                = new CrashableTransactionalKafkaProducer(producer);
-        crashableProducer.sendTransactionally(MESSAGES);
-        crashableProducer.sendTransactionally(MESSAGES);
-
         consumer = consumer(true);
-        ConsumerRecords<Integer, String> records = poll();
+        crashableProducer.sendTransactionally(MESSAGES);
+        crashableProducer.sendTransactionally(MESSAGES);
 
-        assertEquals(4, records.count());
-        printRecordsAndOffset(records, consumer.endOffsets(Collections.emptyList()));
+        List<ConsumerRecord<Integer, String>> records = poll();
+
+        assertEquals(4, records.size());
+        print(records);
     }
 
     @Test
     public void noFailuresOccurred_readCommittedConsumer() {
-        CrashableTransactionalKafkaProducer crashableProducer
-                = new CrashableTransactionalKafkaProducer(producer);
-        crashableProducer.sendTransactionally(MESSAGES);
-        crashableProducer.sendTransactionally(MESSAGES);
-
         consumer = consumer(false);
-        ConsumerRecords<Integer, String> records = poll();
+        crashableProducer.sendTransactionally(MESSAGES);
+        crashableProducer.sendTransactionally(MESSAGES);
 
-        assertEquals(4, records.count());
-        printRecordsAndOffset(records, consumer.endOffsets(Collections.emptyList()));
+        List<ConsumerRecord<Integer, String>> records = poll();
+
+        assertEquals(4, records.size());
+        print(records);
     }
 
     @Test
     public void crashOnSecondTransaction_readAllConsumer() {
-        CrashableTransactionalKafkaProducer crashableProducer
-                = new CrashableTransactionalKafkaProducer(producer);
+        consumer = consumer(true);
         crashableProducer.sendTransactionally(MESSAGES);
         crashableProducer.setShouldCrash(true);
         try {
@@ -98,17 +94,15 @@ public class FailureScenarios {
             System.out.println("Producer crashed!");
         }
 
-        consumer = consumer(true);
-        ConsumerRecords<Integer, String> records = poll();
+        List<ConsumerRecord<Integer, String>> records = poll();
 
-        assertEquals(3, records.count());
-        printRecordsAndOffset(records, consumer.endOffsets(Collections.emptyList()));
+        assertEquals(3, records.size());
+        print(records);
     }
 
     @Test
     public void crashOnSecondTransaction_readCommittedConsumer() {
-        CrashableTransactionalKafkaProducer crashableProducer
-                = new CrashableTransactionalKafkaProducer(producer);
+        consumer = consumer(false);
         crashableProducer.sendTransactionally(MESSAGES);
         crashableProducer.setShouldCrash(true);
         try {
@@ -118,32 +112,32 @@ public class FailureScenarios {
             System.out.println("Producer crashed!");
         }
 
-        consumer = consumer(false);
-        ConsumerRecords<Integer, String> records = poll();
+        List<ConsumerRecord<Integer, String>> records = poll();
 
-        assertEquals(2, records.count());
-        printRecordsAndOffset(records, getOffsets());
+        assertEquals(2, records.size());
+        print(records);
     }
 
 
-    private ConsumerRecords<Integer, String> poll() {
-        consumer.subscribe(TOPICS);
-        consumer.poll(Duration.ofSeconds(2));
-        return consumer.poll(Duration.ofSeconds(2));
+    private List<ConsumerRecord<Integer, String>> poll() {
+        List<ConsumerRecord<Integer, String>> records = new ArrayList<>();
+        LocalTime stopPolling = now().plus(Duration.ofSeconds(1));
+
+        while (now().isBefore(stopPolling)) {
+            ConsumerRecords<Integer, String> batch
+                    = consumer.poll(Duration.ofMillis(100));
+            batch.forEach(records::add);
+        }
+
+        return records;
     }
 
-    private Map<TopicPartition, Long> getOffsets() {
-        return consumer.endOffsets(Collections.emptyList());
-    }
-
-    private void printRecordsAndOffset(
-            ConsumerRecords<Integer, String> records,
-            Map<TopicPartition, Long> offsets) {
-        records.forEach(record ->
-                System.out.println(record.key() + " : " + record.value()));
-        offsets.forEach((partition, offset) ->
-                System.out.println(partition + " : " + offset));
-
+    private void print(List<ConsumerRecord<Integer, String>> records) {
+        records.forEach(record -> System.out.println(
+                "Topic: " + record.topic()
+              + ", offset: " + record.offset()
+              + ", transaction: " + record.key()
+              + ", message:  " + record.value()));
     }
 
 
@@ -161,9 +155,13 @@ public class FailureScenarios {
         props.put(
                 ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
                 StringSerializer.class.getName());
-        // TODO - transaction settings go here
+        props.put(
+                ProducerConfig.TRANSACTIONAL_ID_CONFIG,
+                TRANSACTION_ID);
 
-        return new KafkaProducer<>(props);
+        KafkaProducer<Integer, String> producer = new KafkaProducer<>(props);
+        producer.initTransactions();
+        return producer;
     }
 
     private static KafkaConsumer<Integer, String> consumer(boolean readUncomitted) {
@@ -175,12 +173,13 @@ public class FailureScenarios {
         props.put(
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
                 StringDeserializer.class.getName());
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
         props.put(
                 ConsumerConfig.ISOLATION_LEVEL_CONFIG,
                 readUncomitted ? "read_uncommitted" : "read_committed");
 
-        return new KafkaConsumer<>(props);
+        KafkaConsumer<Integer, String> consumer = new KafkaConsumer<>(props);
+        consumer.subscribe(TOPICS);
+        consumer.seekToEnd(Collections.emptyList());
+        return consumer;
     }
 }

@@ -32,7 +32,7 @@ precautions. One way to tackle that is to have a microservice that forwards
 orders to matcher queue and submits orders stripped of sensitive data into 
 aggregator queue. 
 
-## Transactional producer
+## Successful scenario
 
 To submit messages into different queues we use following code:
 
@@ -45,18 +45,11 @@ public void sendTransactionally(List<TopicAndMessage> messages) {
                 topicAndMessage.getTopic(),
                 getTransactionNr(),
                 topicAndMessage.getMessage()));
-
-        if (shouldCrash) {
-            throw new ForceCrashException("Crashed during transaction!");
-        }
     }
 
     producer.commitTransaction();
 }
 ```
-
-_shouldCrash_ bit is necessary to simulate producer crash to validate 
-transaction functionality.
 
 Now lets simulate successful write in our test scenario:
 
@@ -65,30 +58,59 @@ private static final List<TopicAndMessage> MESSAGES = asList(
             new TopicAndMessage(TRADE_MATCHER_TOPIC, "id: 123, buy 42 chairs"),
             new TopicAndMessage(AGGREGATOR_TOPIC, "buy 42 chairs"));
 
+private KafkaConsumer<Integer, String> consumer = ... // create or get read_uncommitted consumer here
+private KafkaProducer<Integer, String> producer = ... // create or get transactional producer here
+
 @Test
 public void noFailuresOccurred_readAllConsumer() {
-    KafkaProducer<Integer, String> producer = ... // create or get transactional producer here
     CrashableTransactionalKafkaProducer crashableProducer
             = new CrashableTransactionalKafkaProducer(producer);
     crashableProducer.sendTransactionally(MESSAGES);
     crashableProducer.sendTransactionally(MESSAGES);
 
-    KafkaConsumer<Integer, String> consumer = ... // create or get consumer here
     ConsumerRecords<Integer, String> records = poll();
 
     assertEquals(4, records.count());
-    printRecordsAndOffset(records, consumer.endOffsets(Collections.emptyList()));
+    print(records);
 }
 ```
 
 Output:
+```
+Topic: orders, offset: 0, transaction: 1, message:  id: 123, buy 42 chairs
+Topic: anonymous-orders, offset: 0, transaction: 1, message:  buy 42 chairs
+Topic: orders, offset: 2, transaction: 2, message:  id: 123, buy 42 chairs
+Topic: anonymous-orders, offset: 2, transaction: 2, message:  buy 42 chairs
+```
 
+Looks good! Very attentive reader will notice that 2nd transaction offsets 
+start from 2 even though we submitted only 1 message before that. Also what does
+_read_uncommitted_ mean in comment above? Let's discuss this in a moment after 
+checking out failure scenario.
 
-Looks good! Lets see how it behaves if crash occurs.
+## Transactional KafkaProducer initialisation is stuck 
 
-## What if previous example does not work out-of-the-box
+If something is set incorrectly, most of the time Kafka will throw descriptive 
+exception, for example:
 
-Transaction topic and its replication
-Transactional producer settings
+`java.lang.IllegalStateException: Cannot use transactional methods without 
+enabling transactions by setting the transactional.id configuration property`
+
+However one setting may cause indefinite blocking and "hanging". This is broker 
+setting _transaction.state.log.min.isr_ (see also 
+_transaction.state.log.replication.factor_ when changing this). To keep track of 
+which transactions were committed Kafka keeps internal topic called 
+___transaction_state_. This topic should be replicated for fault-tolerance as 
+any other with Kafka. Now when you call _initTransactions()_ on producer, this 
+call will block until topic has all in-sync replicas acknowledgement. 
+
+For example, if broker has only 2 machines online and  
+_transaction.state.log.min.isr = 3_, _initTransactions()_ will block until one 
+more broker node gets online. If that 3rd node will go offline after producer 
+has been initialized successfully, everything will keep working. However for 
+startup it is necessary to have minimum broker node count online.
+
+## Failure scenario
+
 Commit messages and consumer behavior
 Map of TID to PID
