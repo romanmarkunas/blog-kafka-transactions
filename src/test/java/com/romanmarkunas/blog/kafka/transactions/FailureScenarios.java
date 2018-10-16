@@ -121,7 +121,7 @@ public class FailureScenarios {
 
     private List<ConsumerRecord<Integer, String>> poll() {
         List<ConsumerRecord<Integer, String>> records = new ArrayList<>();
-        LocalTime stopPolling = now().plus(Duration.ofSeconds(1));
+        LocalTime stopPolling = now().plus(Duration.ofSeconds(2));
 
         while (now().isBefore(stopPolling)) {
             ConsumerRecords<Integer, String> batch
@@ -180,6 +180,7 @@ public class FailureScenarios {
         KafkaConsumer<Integer, String> consumer = new KafkaConsumer<>(props);
         consumer.subscribe(TOPICS);
         consumer.seekToEnd(Collections.emptyList());
+        consumer.poll(Duration.ofMillis(500));
         return consumer;
     }
 }

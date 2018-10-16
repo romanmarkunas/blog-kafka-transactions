@@ -112,5 +112,57 @@ startup it is necessary to have minimum broker node count online.
 
 ## Failure scenario
 
-Commit messages and consumer behavior
+Now following scenario:
+
+```java
+@Test
+public void crashOnSecondTransaction_readAllConsumer() {
+    crashableProducer.sendTransactionally(MESSAGES);
+    crashableProducer.setShouldCrash(true);
+    try {
+        crashableProducer.sendTransactionally(MESSAGES);
+    }
+    catch (ForceCrashException e) {
+        System.out.println("Producer crashed!");
+    }
+
+    List<ConsumerRecord<Integer, String>> records = poll();
+
+    assertEquals(3, records.size());
+    print(records);
+}
+```
+
+gives us:
+
+```
+Producer crashed!
+Topic: orders, offset: 0, transaction: 1, message:  id: 123, buy 42 chairs
+Topic: anonymous-orders, offset: 0, transaction: 1, message:  buy 42 chairs
+Topic: orders, offset: 2, transaction: 2, message:  id: 123, buy 42 chairs
+```
+
+Oops! Looks like transactions didn't work. But they actually do. The problem 
+here is that consumer was created with _isolation.level = read_uncommitted_ 
+setting, which is it's default value. Every time producer commits a transaction 
+it submits a commit marker to the log. If consumer's _isolation.level_ is set
+to _read_uncommitted_ it just reads all messages it can. In case setting is 
+_read_committed_ consumer will wait until commit marker is submitted to decide
+what to do with preceding messages.
+
+This commit marker contains all necessary data for consumer to read from 
+___transactions_state_ topic and decide, if message must be returned. In case when 
+producer abort transaction commit marker will represents abort and will be 
+ignore by consumer. In case producer dies, broker will ultimately expire 
+transaction and abort marker itself. This is why if you submit _n_ messages to 
+topic the next batch will always start at _n+1_ offset.
+
+Now if we set consumer's _isolation.level = read_committed_, we will get:
+
+```
+Producer crashed!
+Topic: orders, offset: 4, transaction: 1, message:  id: 123, buy 42 chairs
+Topic: anonymous-orders, offset: 2, transaction: 1, message:  buy 42 chairs
+``` 
+
 Map of TID to PID
