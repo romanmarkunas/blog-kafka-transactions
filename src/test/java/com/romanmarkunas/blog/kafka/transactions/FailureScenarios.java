@@ -145,7 +145,7 @@ public class FailureScenarios {
         fail("Did not throw expected ProducerFencedException!");
     }
 
-    
+
     private List<ConsumerRecord<Integer, String>> poll() {
         List<ConsumerRecord<Integer, String>> records = new ArrayList<>();
         LocalTime stopPolling = now().plus(Duration.ofSeconds(2));
