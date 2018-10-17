@@ -27,8 +27,8 @@ other. Users submit buy/sell orders and our app finds matching orders so that
 trades can occur. We also want to aggregate order data to figure out daily 
 volumes, most traded instruments and other fancy business intelligence data. 
 However we do not want to submit customer specific data to business intelligence 
-pipeline because it is personal information and should not be read without 
-precautions. One way to tackle that is to have a microservice that forwards 
+pipeline because it is personal information and should not be read by unauthorized  
+personnel. One way to tackle that is to have a microservice that forwards 
 orders to matcher queue and submits orders stripped of sensitive data into 
 aggregator queue. 
 
@@ -165,4 +165,46 @@ Topic: orders, offset: 4, transaction: 1, message:  id: 123, buy 42 chairs
 Topic: anonymous-orders, offset: 2, transaction: 1, message:  buy 42 chairs
 ``` 
 
-Map of TID to PID
+So important note here is that transactional producing is dependent on the 
+readers. Therefore when building pipelines with Kafka, every node in chain 
+settings must be carefully considered, because one error may cause change in all 
+pipeline delivery semantics!
+
+## Producer fencing and expiration
+
+To protect cluster from intermittent connection errors Kafka uses epochs tied 
+to producer's transaction ID. Every time producer calls _initTransactions()_, 
+cluster will assign it an _epoch = previous_epoch + 1_. This means that if 
+you start producer with transaction id and cluster has active producer with 
+same id, the latter one will be disconnected (fenced in Kafka terms) and throw 
+an exception next time it tries to send message:
+
+```
+org.apache.kafka.common.errors.ProducerFencedException: Producer attempted an 
+operation with an old epoch. Either there is a newer producer with the same 
+transactionalId, or the producer's transaction has been expired by the broker.
+```
+
+Sometimes producer throws another exception, with ProducerFencedException as 
+cause.
+
+But this exception may occur even without connectivity errors. Internally 
+broker keeps a map of producer IDs to transaction IDs to maintain aforementioned 
+fencing functionality. However broker will expire these entries based on 
+_transactional.id.expiration.ms_ setting which is by default 604800000 ms or 
+1 week. 
+
+This means that if your producer sends messages slower than once a week it will 
+be fenced (crash) every time it tries to send after that prolonged period. One 
+could put that value to Integer.MAX, but that still will be around 24 days. In 
+case of very rare events, this should be solved differently, e.g. by having 
+separate producer ping topic, that producer will periodically send messages to.
+
+## Instead of conclusion
+
+That's it for Kafka producers! Hopefully this will help you to understand, setup 
+Kafka transactions and successfully keep them producing. For more implementation 
+details how Kafka transactions work, I recommend blog mentioned in this post's 
+intro and this [Kafka KIP](https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging#KIP-98-ExactlyOnceDeliveryandTransactionalMessaging-2.GettingaproducerId--theInitPidRequest).
+
+Stay tuned for article on transactional consuming!

@@ -7,6 +7,8 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.errors.ProducerFencedException;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.kafka.common.serialization.IntegerSerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -23,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import static java.time.LocalTime.now;
 import static java.util.Arrays.asList;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 public class FailureScenarios {
 
@@ -53,8 +56,12 @@ public class FailureScenarios {
 
     @After
     public void teardown() {
-        producer.close(2, TimeUnit.SECONDS);
-        consumer.close(Duration.ofSeconds(2));
+        if (producer != null) {
+            producer.close(2, TimeUnit.SECONDS);
+        }
+        if (consumer != null) {
+            consumer.close(Duration.ofSeconds(2));
+        }
     }
 
 
@@ -118,6 +125,25 @@ public class FailureScenarios {
         print(records);
     }
 
+    @Test
+    public void throw_producerWasFencedByAnotherOne() {
+        transactionalProducer();
+        try {
+            crashableProducer.sendTransactionally(MESSAGES);
+        }
+        catch (ProducerFencedException e) {
+            e.printStackTrace();
+            return;
+        }
+        catch (KafkaException e) {
+            if (e.getCause() instanceof ProducerFencedException) {
+                e.printStackTrace();
+                return;
+            }
+        }
+
+        fail("Did not throw expected ProducerFencedException!");
+    }
 
     private List<ConsumerRecord<Integer, String>> poll() {
         List<ConsumerRecord<Integer, String>> records = new ArrayList<>();
